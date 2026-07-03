@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""run_eval — score auditor models against known-verdict cases.
+
+Usage:
+  ./run_eval gemma4:latest qwen3:latest
+  ./run_eval gemma4:latest --cases cases.jsonl --json
+
+Reuses hca's prompt, backend, and fail-closed parsing — the eval measures the
+exact pipeline production uses, not an approximation of it.
+
+Scoring: verdict agreement. False-PASS (model passes what should fail) is the
+dangerous direction and is reported separately from false-FAIL (annoying).
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+import time
+
+str_here = os.path.dirname(os.path.abspath(__file__))
+loader = importlib.machinery.SourceFileLoader("hca", os.path.join(str_here, "..", "hca"))
+spec = importlib.util.spec_from_loader("hca", loader)
+hca = importlib.util.module_from_spec(spec)
+loader.exec_module(hca)
+
+
+def fn_find_guardrails() -> str:
+    str_dir = str_here
+    while str_dir != "/":
+        file_try = os.path.join(str_dir, "docs", "GUARDRAILS.md")
+        if os.path.exists(file_try):
+            return file_try
+        str_dir = os.path.dirname(str_dir)
+    raise RuntimeError("GUARDRAILS.md not found above eval dir")
+
+
+def fn_run_model(str_model: str, lst_cases: list, str_guardrails: str) -> dict:
+    obj_cfg = hca.fn_cfg()
+    obj_cfg["str_model"] = str_model
+    lst_results = []
+    for obj_case in lst_cases:
+        str_prompt = hca.STR_PROMPT_TEMPLATE.format(
+            str_guardrails=str_guardrails,
+            str_scope=obj_case["str_scope"],
+            str_output=obj_case["str_output"])
+        t0 = time.monotonic()
+        try:
+            str_verdict, _ = hca.fn_parse_verdict(hca.fn_ollama(str_prompt, obj_cfg))
+        except RuntimeError as exc:
+            str_verdict = f"ERROR:{exc}"
+        lst_results.append({
+            "str_id": obj_case["str_id"],
+            "str_expected": obj_case["str_expected"],
+            "str_got": str_verdict,
+            "b_correct": str_verdict == obj_case["str_expected"],
+            "int_ms": int((time.monotonic() - t0) * 1000),
+        })
+    int_correct = sum(1 for r in lst_results if r["b_correct"])
+    int_false_pass = sum(1 for r in lst_results
+                         if r["str_expected"] == "FAIL" and r["str_got"] == "PASS")
+    int_false_fail = sum(1 for r in lst_results
+                         if r["str_expected"] == "PASS" and r["str_got"] == "FAIL")
+    return {"str_model": str_model, "int_total": len(lst_results),
+            "int_correct": int_correct, "int_false_pass": int_false_pass,
+            "int_false_fail": int_false_fail, "lst_results": lst_results}
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Auditor model eval")
+    p.add_argument("models", nargs="+", help="ollama model names to score")
+    p.add_argument("--cases", default=os.path.join(str_here, "cases.jsonl"))
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args()
+
+    lst_cases = [json.loads(l) for l in open(args.cases, encoding="utf-8")
+                 if l.strip()]
+    str_guardrails = open(fn_find_guardrails(), encoding="utf-8").read()
+
+    lst_reports = [fn_run_model(m, lst_cases, str_guardrails) for m in args.models]
+
+    if args.json:
+        print(json.dumps(lst_reports, indent=2))
+    else:
+        for obj_r in lst_reports:
+            print(f"\n== {obj_r['str_model']} — "
+                  f"{obj_r['int_correct']}/{obj_r['int_total']} correct, "
+                  f"{obj_r['int_false_pass']} false-PASS (dangerous), "
+                  f"{obj_r['int_false_fail']} false-FAIL ==")
+            for r in obj_r["lst_results"]:
+                str_mark = "ok  " if r["b_correct"] else "MISS"
+                print(f"  {str_mark} {r['str_id']:<28} expected {r['str_expected']:<4} "
+                      f"got {r['str_got']:<4} {r['int_ms']}ms")
+    # exit nonzero if any model produced a false-PASS — the dangerous miss
+    return 1 if any(r["int_false_pass"] for r in lst_reports) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,14 @@
+# Holocortex site — live-reload render of the repo markdown on the always-on host.
+# http://<site-host>:8378 — read-only mount; the site can never
+# mutate the substrate (G1 by construction).
+services:
+  holocortex-site:
+    image: squidfunk/mkdocs-material:latest
+    container_name: holocortex-site
+    command: serve -f /config/mkdocs.yml -a 0.0.0.0:8378 --watch /repo
+    ports:
+      - "8378:8378"
+    restart: unless-stopped
+    volumes:
+      - ./mkdocs.yml:/config/mkdocs.yml:ro
+      - ../..:/repo:ro

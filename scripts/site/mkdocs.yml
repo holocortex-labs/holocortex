@@ -1,0 +1,28 @@
+# Holocortex render layer — read-only view over the markdown substrate.
+# Container paths (see compose.yaml): repo mounted at /repo, site built to /site.
+# Nav is auto-generated from directory structure on purpose: new captures and
+# ADRs appear without touching this file (no G8 drift by design).
+site_name: Holocortex
+docs_dir: /repo
+site_dir: /site
+exclude_docs: |
+  scripts/**
+  templates/**
+  *.draft
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

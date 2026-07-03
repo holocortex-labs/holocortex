@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""hcr-report — routing-log analysis for the weekly P5 review.
+
+Usage:
+  ./hcr-report                      # last 7 days, ./data/routing.jsonl
+  ./hcr-report --days 30 --log /path/routing.jsonl
+  ./hcr-report --json
+
+Reads the router's JSONL log; answers three P5 questions: where did tokens go,
+why did queries escalate, and is the reflex tier pulling its weight.
+"""
+import argparse
+import json
+import os
+import sys
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
+
+
+def fn_load(file_log: str, int_days: int) -> list:
+    dt_cutoff = datetime.now(timezone.utc) - timedelta(days=int_days)
+    lst_entries = []
+    with open(file_log, encoding="utf-8") as f:
+        for str_line in f:
+            try:
+                obj = json.loads(str_line)
+                if datetime.fromisoformat(obj["str_ts"]) >= dt_cutoff:
+                    lst_entries.append(obj)
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue  # malformed lines are skipped, not fatal
+    return lst_entries
+
+
+def fn_summarise(lst_entries: list, int_days: int) -> dict:
+    ctr_tier = Counter(e.get("str_tier", "?") for e in lst_entries)
+    ctr_reason = Counter(e.get("str_reason", "?") for e in lst_entries
+                         if e.get("str_tier") == "planner"
+                         or str(e.get("str_reason", "")).startswith("budget_refusal"))
+    dict_tokens_by_day = defaultdict(int)
+    for e in lst_entries:
+        dict_tokens_by_day[e.get("str_date", "?")] += int(e.get("int_tokens_cloud", 0))
+    int_total = len(lst_entries)
+    int_reflex = ctr_tier.get("reflex", 0)
+    return {
+        "int_days": int_days,
+        "int_queries": int_total,
+        "dict_tier": dict(ctr_tier),
+        "flt_reflex_ratio": round(int_reflex / int_total, 3) if int_total else None,
+        "int_tokens_cloud": sum(dict_tokens_by_day.values()),
+        "dict_tokens_by_day": dict(sorted(dict_tokens_by_day.items())),
+        "dict_escalation_reasons": dict(ctr_reason.most_common()),
+        "int_overrides": sum(1 for e in lst_entries if e.get("b_override")),
+        "int_p95_ms": sorted(e.get("int_ms", 0) for e in lst_entries)[
+            max(0, int(int_total * 0.95) - 1)] if int_total else None,
+    }
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Routing-log analysis (P5)")
+    p.add_argument("--log", default=os.environ.get(
+        "HCR_LOG_FILE", os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), "data", "routing.jsonl")))
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args()
+
+    if not os.path.exists(args.log):
+        print(f"hcr-report: no log at {args.log}", file=sys.stderr)
+        return 2
+    obj = fn_summarise(fn_load(args.log, args.days), args.days)
+
+    if args.json:
+        print(json.dumps(obj, indent=2))
+        return 0
+
+    print(f"Routing report — last {obj['int_days']} days, {obj['int_queries']} queries")
+    if not obj["int_queries"]:
+        return 0
+    str_tiers = ", ".join(f"{k}={v}" for k, v in obj["dict_tier"].items())
+    print(f"  tiers:        {str_tiers}  (reflex ratio {obj['flt_reflex_ratio']})")
+    print(f"  cloud tokens: {obj['int_tokens_cloud']}")
+    for str_day, int_tok in obj["dict_tokens_by_day"].items():
+        print(f"    {str_day}  {int_tok}")
+    if obj["dict_escalation_reasons"]:
+        print("  escalations:")
+        for str_r, int_n in obj["dict_escalation_reasons"].items():
+            print(f"    {str_r:<24} {int_n}")
+    print(f"  overrides:    {obj['int_overrides']}")
+    print(f"  p95 latency:  {obj['int_p95_ms']}ms")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

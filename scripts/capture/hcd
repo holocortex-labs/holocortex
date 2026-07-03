@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""hcd — Holocortex capture drafter (P1, makes G7 cheap).
+
+Feeds a session transcript or rough notes to the local reflex model and emits
+a filled capture following templates/capture.md. Output is ALWAYS a .draft
+file — a human reviews, edits, and renames before commit. hcd never commits,
+never overwrites, and marks gaps rather than inventing content.
+
+Usage:
+  hcd --topic router-debug --input transcript.txt
+  some-command | hcd --topic smoke-test --input -
+  hcd --topic x --input notes.md --date 2026-07-01
+
+Env: HCR_OLLAMA_PRIMARY / HCR_OLLAMA_FALLBACK (shared),
+     HCD_MODEL (default gemma4:latest), HCD_TIMEOUT_S (default 300).
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+
+def fn_load_file_env() -> dict:
+    """~/.config/holocortex/env — per-host site config, outside the repo.
+    Precedence: process env > this file > localhost fallback (never a site name)."""
+    file_cfg = os.path.join(os.path.expanduser("~"), ".config", "holocortex", "env")
+    dict_env = {}
+    try:
+        with open(file_cfg, encoding="utf-8") as f:
+            for str_line in f:
+                str_line = str_line.strip()
+                if not str_line or str_line.startswith("#") or "=" not in str_line:
+                    continue
+                str_k, str_v = str_line.split("=", 1)
+                str_v = str_v.split(" #", 1)[0]  # inline comments; values may not contain " #"
+                dict_env[str_k.strip()] = str_v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return dict_env
+
+
+_DICT_FILE_ENV = fn_load_file_env()
+
+
+def fn_env(str_key: str, str_default: str = "") -> str:
+    return os.environ.get(str_key, _DICT_FILE_ENV.get(str_key, str_default))
+
+STR_PROMPT_TEMPLATE = """You draft knowledge captures for the Holocortex system. Fill in the capture \
+template below using ONLY information present in the session material. Rules:
+- Follow the template structure exactly; keep the markdown headings.
+- Be factual and terse. No praise, no filler.
+- Include dead ends and failures — they are first-class findings.
+- If a section has no information in the material, write exactly:
+  "Not recorded — fill in."
+- Never invent links, commands, or outcomes.
+- For header fields (Date, Session tier(s), Audit): use values only if present
+  in the material; otherwise write "n-a". Never assume an audit verdict.
+- Do not include credentials, tokens, or keys even if present in the material;
+  write [REDACTED] instead.
+
+## Capture template
+{str_template}
+
+## Session material
+{str_material}
+
+Respond with the completed capture markdown only — no preamble, no commentary.
+"""
+
+
+def fn_cfg() -> dict:
+    return {
+        "str_ollama_primary": fn_env("HCR_OLLAMA_PRIMARY", "http://127.0.0.1:11434"),
+        "str_ollama_fallback": fn_env("HCR_OLLAMA_FALLBACK", ""),
+        "str_model": fn_env("HCD_MODEL", "gemma4:latest"),
+        "int_timeout_s": int(fn_env("HCD_TIMEOUT_S", "300")),
+    }
+
+
+def fn_ollama(str_prompt: str, obj_cfg: dict) -> str:
+    obj_body = {"model": obj_cfg["str_model"], "prompt": str_prompt,
+                "stream": False, "options": {"temperature": 0.2}}
+    lst_errors = []
+    for str_base in (obj_cfg["str_ollama_primary"], obj_cfg["str_ollama_fallback"]):
+        if not str_base:
+            continue
+        try:
+            req = urllib.request.Request(
+                f"{str_base}/api/generate", data=json.dumps(obj_body).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=obj_cfg["int_timeout_s"]) as resp:
+                return json.loads(resp.read().decode())["response"]
+        except urllib.error.HTTPError as exc:
+            str_detail = ""
+            try:
+                str_detail = json.loads(exc.read().decode()).get("error", "")
+            except Exception:
+                pass
+            lst_errors.append(f"{str_base}: HTTP {exc.code} {str_detail}".strip())
+        except Exception as exc:
+            lst_errors.append(f"{str_base}: {exc}")
+    raise RuntimeError("drafter backend failed — " + " | ".join(lst_errors))
+
+
+def fn_repo_root() -> str:
+    # realpath: resolve the ~/.local/bin symlink back into the repo
+    str_dir = os.path.dirname(os.path.realpath(__file__))
+    while str_dir != "/":
+        if os.path.exists(os.path.join(str_dir, "templates", "capture.md")):
+            return str_dir
+        str_dir = os.path.dirname(str_dir)
+    raise RuntimeError("repo root not found (templates/capture.md missing)")
+
+
+def fn_slug(str_topic: str) -> str:
+    return "".join(c if c.isalnum() or c == "-" else "-"
+                   for c in str_topic.lower().strip()).strip("-")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Holocortex capture drafter (P1/G7)")
+    p.add_argument("--topic", required=True, help="short topic slug for the filename")
+    p.add_argument("--input", required=True,
+                   help="transcript/notes file, or - for stdin")
+    p.add_argument("--date", default=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    p.add_argument("--out-dir", help="default: <repo>/captures")
+    args = p.parse_args()
+
+    try:
+        str_material = sys.stdin.read() if args.input == "-" else \
+            open(args.input, encoding="utf-8").read()
+        if not str_material.strip():
+            raise RuntimeError("empty session material")
+
+        str_root = fn_repo_root()
+        str_template = open(os.path.join(str_root, "templates", "capture.md"),
+                            encoding="utf-8").read()
+        str_out_dir = args.out_dir or os.path.join(str_root, "captures")
+        file_out = os.path.join(
+            str_out_dir, f"{args.date}-{fn_slug(args.topic)}.md.draft")
+        if os.path.exists(file_out):
+            raise RuntimeError(f"refusing to overwrite {file_out}")
+
+        obj_cfg = fn_cfg()
+        str_draft = fn_ollama(STR_PROMPT_TEMPLATE.format(
+            str_template=str_template, str_material=str_material), obj_cfg)
+
+        os.makedirs(str_out_dir, exist_ok=True)
+        with open(file_out, "w", encoding="utf-8") as f:
+            f.write(f"<!-- DRAFT by hcd/{obj_cfg['str_model']} — review, edit, "
+                    f"rename to .md before commit (G7) -->\n{str_draft.strip()}\n")
+        print(file_out)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"hcd: error: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,12 @@
+# Holocortex router — deploy on the always-on host alongside other container suites.
+# network_mode: host so the daemon reaches ollama backends over the Tailscale
+# mesh via the host and is itself reachable at <router-host>:8377.
+services:
+  holocortex-router:
+    build: .
+    container_name: holocortex-router
+    network_mode: host
+    restart: unless-stopped
+    env_file: router.env
+    volumes:
+      - ./data:/data

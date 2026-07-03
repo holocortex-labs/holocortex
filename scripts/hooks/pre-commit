@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Holocortex pre-commit secret scan — mechanical G5 enforcement.
+# Scans STAGED content (what would actually be committed), not the worktree.
+# Escapes: filenames ending .example, or a line containing hcr-allow-secret.
+# Install (once, per clone):  git config core.hooksPath scripts/hooks
+# Uninstall (G2):             git config --unset core.hooksPath
+set -euo pipefail
+
+# Patterns are anchored to real credential shapes to keep false positives low.
+lst_patterns=(
+    'sk-ant-[A-Za-z0-9_-]{16,}'
+    'sk-proj-[A-Za-z0-9_-]{16,}'
+    'AKIA[0-9A-Z]{16}'
+    'ghp_[A-Za-z0-9]{36}'
+    'github_pat_[A-Za-z0-9_]{22,}'
+    'tskey-[A-Za-z0-9-]{16,}'
+    'xox[baprs]-[A-Za-z0-9-]{10,}'
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    '(api[_-]?key|secret|token|password|passwd)[[:space:]]*[=:][[:space:]]*["'"'"'][A-Za-z0-9+/_-]{16,}["'"'"']'
+)
+
+int_findings=0
+while IFS= read -r -d '' str_file; do
+    [[ "${str_file}" == *.example ]] && continue
+    # staged blob, not worktree — what git will actually record
+    str_staged="$(git show ":${str_file}" 2>/dev/null || true)"
+    [[ -z "${str_staged}" ]] && continue
+    for str_pattern in "${lst_patterns[@]}"; do
+        while IFS= read -r str_hit; do
+            [[ -z "${str_hit}" ]] && continue
+            [[ "${str_hit}" == *hcr-allow-secret* ]] && continue
+            echo "G5 VIOLATION ${str_file}: ${str_hit:0:80}" >&2
+            int_findings=$((int_findings + 1))
+        done < <(grep -En -e "${str_pattern}" <<<"${str_staged}" || true)
+    done
+done < <(git diff --cached --name-only -z --diff-filter=ACM)
+
+if (( int_findings > 0 )); then
+    echo "" >&2
+    echo "pre-commit: ${int_findings} potential secret(s) staged — commit blocked (G5)." >&2
+    echo "False positive? Append 'hcr-allow-secret' to the line, or use a .example file." >&2
+    exit 1
+fi
+exit 0

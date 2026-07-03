@@ -1,0 +1,16 @@
+# secrets & credentials — never committed
+*.env
+*.key
+*.pem
+secrets/
+
+# scratch & caches
+scratch/
+__pycache__/
+*.tmp
+
+# local model artefacts
+.ollama/
+models/
+router.env
+data/

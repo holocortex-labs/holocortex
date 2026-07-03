@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# hcr — Holocortex router CLI client.
+# Usage:
+#   hcr "query"                    route a query (reflex-first)
+#   hcr --force-planner "query"    explicit cloud override (logged)
+#   hcr --context file.md "query"  attach file contents as context
+#   hcr --stats | --health         daemon introspection
+# Env: HCR_ROUTER_URL via ~/.config/holocortex/env or process env (default localhost:8377)
+set -euo pipefail
+
+# per-host site config; process env wins over file (deterministic precedence).
+# PARSED, never sourced — config must not be able to execute code, and values
+# with spaces must not need shell quoting.
+file_site_cfg="${HOME}/.config/holocortex/env"
+str_file_url=""
+if [[ -f "${file_site_cfg}" ]]; then
+    str_file_url="$(grep -E '^HCR_ROUTER_URL=' "${file_site_cfg}" | tail -1 \
+        | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//")"
+fi
+str_router_url="${HCR_ROUTER_URL:-${str_file_url:-http://127.0.0.1:8377}}"
+b_force_planner="false"
+file_context=""
+str_query=""
+
+fn_usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+fn_get() {
+    curl -sf "${str_router_url}$1" | python3 -m json.tool || {
+        echo "hcr: router unreachable at ${str_router_url} — is the daemon up?" >&2
+        echo "hcr: try: docker ps --filter name=holocortex-router" >&2
+        exit 2
+    }
+}
+
+fn_route() {
+    HCR_URL="${str_router_url}" HCR_Q="${str_query}" \
+    HCR_CTX_FILE="${file_context}" HCR_FORCE="${b_force_planner}" \
+    python3 - <<'PY'
+import json, os, sys, urllib.error, urllib.request
+
+str_url = os.environ["HCR_URL"]
+str_ctx = ""
+file_ctx = os.environ["HCR_CTX_FILE"]
+if file_ctx:
+    with open(file_ctx, encoding="utf-8") as f:
+        str_ctx = f.read()
+
+req = urllib.request.Request(
+    str_url + "/route",
+    data=json.dumps({
+        "str_query": os.environ["HCR_Q"],
+        "str_context": str_ctx,
+        "b_force_planner": os.environ["HCR_FORCE"] == "true",
+    }).encode(),
+    headers={"Content-Type": "application/json"}, method="POST")
+
+try:
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        obj = json.loads(resp.read().decode())
+except urllib.error.HTTPError as exc:
+    try:
+        str_detail = json.loads(exc.read().decode()).get("str_error", "")
+    except Exception:
+        str_detail = ""
+    print("hcr: router returned %s: %s" % (exc.code, str_detail), file=sys.stderr)
+    sys.exit(3)
+except urllib.error.URLError as exc:
+    print("hcr: router unreachable at %s (%s)" % (str_url, exc.reason), file=sys.stderr)
+    print("hcr: is the daemon up? docker ps --filter name=holocortex-router", file=sys.stderr)
+    print("hcr: local check:      curl -s %s/stats" % str_url, file=sys.stderr)
+    sys.exit(2)
+
+print(obj["str_answer"])
+str_meta = "-- tier=%s reason=%s tokens_cloud=%s" % (
+    obj["str_tier"], obj["str_reason"], obj["int_tokens_cloud"])
+if obj.get("b_budget_warn"):
+    str_meta += " BUDGET-WARN"
+print("\n" + str_meta, file=sys.stderr)
+PY
+}
+
+[[ $# -eq 0 ]] && fn_usage
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --force-planner) b_force_planner="true"; shift ;;
+        --context)       file_context="$2"; shift 2 ;;
+        --stats)         fn_get /stats; exit 0 ;;
+        --health)        fn_get /health; exit 0 ;;
+        -h|--help)       fn_usage ;;
+        *)               str_query="$1"; shift ;;
+    esac
+done
+
+[[ -n "${str_query}" ]] || fn_usage
+fn_route

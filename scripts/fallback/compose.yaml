@@ -1,0 +1,13 @@
+# Holocortex reflex fallback — CPU ollama on the always-on host.
+# Keeps the reflex tier alive when the GPU host sleeps. Slow is fine; dead is not.
+services:
+  holocortex-ollama:
+    image: ollama/ollama:latest
+    container_name: holocortex-ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    volumes:
+      - ./models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1   # pin the model — CPU cold-load is brutal
