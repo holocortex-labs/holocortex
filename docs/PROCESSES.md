@@ -7,7 +7,8 @@ The defined workflows. Each is small, composable, and file-based.
 **Steps:** copy `templates/capture.md` → `captures/YYYY-MM-DD-topic.md`; fill
 context / findings / decision / rollback / links; commit. Scripted (v0.5):
 `scripts/capture/hcd --topic x --input transcript.txt` emits a .md.draft via
-the reflex tier; review, edit, rename to .md, commit. Drafts never commit as-is.
+the reflex tier; review, edit, rename to .md, commit. Drafts never commit
+as-is — see docs/guides/draft-review.md for the review checklist.
 **Output:** one dated markdown file. The wiki is the accumulation of these.
 
 ## P2 — Route

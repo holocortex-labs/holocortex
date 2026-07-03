@@ -19,7 +19,15 @@ lst_patterns=(
     '(api[_-]?key|secret|token|password|passwd)[[:space:]]*[=:][[:space:]]*["'"'"'][A-Za-z0-9+/_-]{16,}["'"'"']'
 )
 
+# Unreviewed-draft markers: a committed capture must not still look like a
+# raw hcd draft. See docs/guides/draft-review.md.
+lst_draft_markers=(
+    'DRAFT by hcd'
+    'Not recorded'
+)
+
 int_findings=0
+int_draft=0
 while IFS= read -r -d '' str_file; do
     [[ "${str_file}" == *.example ]] && continue
     # staged blob, not worktree — what git will actually record
@@ -33,12 +41,28 @@ while IFS= read -r -d '' str_file; do
             int_findings=$((int_findings + 1))
         done < <(grep -En -e "${str_pattern}" <<<"${str_staged}" || true)
     done
+    # G7: a promoted capture (captures/*.md, not .draft) must be reviewed
+    if [[ "${str_file}" == captures/*.md && "${str_file}" != *.draft ]]; then
+        for str_marker in "${lst_draft_markers[@]}"; do
+            if grep -qF -e "${str_marker}" <<<"${str_staged}"; then
+                echo "G7 UNREVIEWED DRAFT ${str_file}: contains '${str_marker}'" >&2
+                int_draft=$((int_draft + 1))
+            fi
+        done
+    fi
 done < <(git diff --cached --name-only -z --diff-filter=ACM)
 
 if (( int_findings > 0 )); then
     echo "" >&2
     echo "pre-commit: ${int_findings} potential secret(s) staged — commit blocked (G5)." >&2
     echo "False positive? Append 'hcr-allow-secret' to the line, or use a .example file." >&2
+    exit 1
+fi
+if (( int_draft > 0 )); then
+    echo "" >&2
+    echo "pre-commit: ${int_draft} capture(s) still carry draft markers — blocked (G7)." >&2
+    echo "Review per docs/guides/draft-review.md: remove the DRAFT comment and fill" >&2
+    echo "or delete any 'Not recorded' placeholders before committing." >&2
     exit 1
 fi
 exit 0

@@ -49,6 +49,25 @@ fn_expect "aws_key_blocked" 1
 echo "GUARDRAILS.md talks about api_key patterns in prose" > prose.md; git add prose.md
 fn_expect "prose_mention_not_flagged" 0
 
+# G7 draft-marker enforcement on promoted captures
+mkdir -p captures
+printf '<!-- DRAFT by hcd/gemma4:latest -->\n# Capture\n' > captures/2026-01-01-x.md
+git add captures/2026-01-01-x.md
+fn_expect "committed_draft_marker_blocked" 1
+
+printf '# Capture\n\n## Rollback\nNot recorded — fill in.\n' > captures/2026-01-02-y.md
+git add captures/2026-01-02-y.md
+fn_expect "unfilled_placeholder_blocked" 1
+
+printf '# Capture\n\n## Context\nReal reviewed content.\n' > captures/2026-01-03-z.md
+git add captures/2026-01-03-z.md
+fn_expect "clean_reviewed_capture_commits" 0
+
+# a raw .draft file is NOT a promoted capture — marker is expected, allowed
+printf '<!-- DRAFT by hcd/gemma4:latest -->\n# Capture\n' > captures/2026-01-04-w.md.draft
+git add captures/2026-01-04-w.md.draft
+fn_expect "draft_file_with_marker_allowed" 0
+
 echo "----"
 echo "${int_pass} passed, ${int_fail} failed"
 exit "${int_fail}"
