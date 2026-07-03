@@ -1,4 +1,6 @@
 # Holocortex reflex fallback — CPU ollama on the always-on host.
+# M3 (hardening review): ports below binds ALL interfaces so remote clients can
+# use the fallback. Local-only clients? Use "127.0.0.1:11434:11434" instead.
 # Keeps the reflex tier alive when the GPU host sleeps. Slow is fine; dead is not.
 services:
   holocortex-ollama:

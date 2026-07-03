@@ -69,12 +69,15 @@ class TestRoute(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         hr.CFG["file_log"] = os.path.join(self.tmp.name, "routing.jsonl")
+        self._str_orig_key = hr.CFG["str_anthropic_key"]
+        hr.CFG["str_anthropic_key"] = "test-key"  # planner configured (M5 has own test)
         self.planner = FakePlanner()
         self._orig_planner = hr.PLANNER
         hr.PLANNER = self.planner
 
     def tearDown(self):
         hr.PLANNER = self._orig_planner
+        hr.CFG["str_anthropic_key"] = self._str_orig_key
         self.tmp.cleanup()
 
     def _log_lines(self):
@@ -127,6 +130,72 @@ class TestRoute(unittest.TestCase):
         with mock.patch.object(hr, "fn_ollama_generate", return_value="ok"):
             obj = hr.fn_route("small question")
         self.assertTrue(obj["b_budget_warn"])
+
+
+class TestHardening(unittest.TestCase):
+    """H1 auth, M1 body cap (HTTP level), M5 planner-unavailable (unit)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        from http.server import ThreadingHTTPServer
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), hr.Handler)
+        cls.int_port = cls.srv.server_address[1]
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def _post(self, obj_body, dict_headers=None):
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.int_port}/route",
+            data=json.dumps(obj_body).encode(),
+            headers={"Content-Type": "application/json", **(dict_headers or {})},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    def test_auth_required_when_token_set(self):
+        with mock.patch.dict(hr.CFG, {"str_auth_token": "sekrit"}):
+            self.assertEqual(self._post({"str_query": "x"}), 401)
+            self.assertEqual(
+                self._post({"str_query": "x"}, {"X-HC-Token": "wrong"}), 401)
+
+    def test_auth_passes_with_token_and_open_when_unset(self):
+        with mock.patch.dict(hr.CFG, {"str_auth_token": "sekrit",
+                                      "file_log": os.devnull}), \
+             mock.patch.object(hr, "fn_ollama_generate", return_value="ok"), \
+             mock.patch.object(hr, "fn_budget_spent_today", return_value=0), \
+             mock.patch.object(hr, "fn_log"):
+            self.assertEqual(
+                self._post({"str_query": "x"}, {"X-HC-Token": "sekrit"}), 200)
+        with mock.patch.dict(hr.CFG, {"str_auth_token": ""}), \
+             mock.patch.object(hr, "fn_ollama_generate", return_value="ok"), \
+             mock.patch.object(hr, "fn_budget_spent_today", return_value=0), \
+             mock.patch.object(hr, "fn_log"):
+            self.assertEqual(self._post({"str_query": "x"}), 200)
+
+    def test_body_cap_413(self):
+        with mock.patch.dict(hr.CFG, {"int_max_body": 100}):
+            self.assertEqual(self._post({"str_query": "y" * 500}), 413)
+
+    def test_planner_unavailable_degrades_to_reflex(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(hr.CFG, {"str_anthropic_key": "",
+                                          "file_log": os.path.join(d, "r.jsonl")}), \
+                 mock.patch.object(hr, "fn_ollama_generate",
+                                   return_value="local answer"):
+                obj = hr.fn_route("wake the hypervisor via wol")
+        self.assertEqual(obj["str_tier"], "reflex")
+        self.assertEqual(obj["str_reason"], "planner_unavailable:tooling")
+        self.assertIn("no planner is configured", obj["str_answer"])
+        self.assertEqual(obj["int_tokens_cloud"], 0)
 
 
 if __name__ == "__main__":

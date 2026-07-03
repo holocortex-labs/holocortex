@@ -67,6 +67,9 @@ def fn_cfg() -> dict:
             "mcp,netbox,wake-on-lan,wol,container,jira,confluence,home assistant"),
         "file_log": fn_env("HCR_LOG_FILE", "/data/routing.jsonl"),
         "int_port": int(fn_env("HCR_PORT", "8377")),
+        # H1 (hardening review): optional shared token; empty = mesh-trust mode
+        "str_auth_token": fn_env("HCR_AUTH_TOKEN", ""),
+        "int_max_body": int(fn_env("HCR_MAX_BODY_BYTES", str(1024 * 1024))),
         "int_timeout_s": int(fn_env("HCR_TIMEOUT_S", "120")),
     }
 
@@ -241,6 +244,15 @@ def fn_route(str_query: str, str_context: str = "",
                            f"({int_spent}/{int_budget} tokens); reflex-only answer. "
                            "Override with b_force_planner.")
             str_tier, str_reason = "reflex", f"budget_refusal:{str_reason}"
+        elif not CFG["str_anthropic_key"]:
+            # M5: no planner configured — degrade to reflex + note, don't 502
+            str_prompt = (f"Context:\n{str_context}\n\n" if str_context else "") + \
+                f"Query:\n{str_query}"
+            str_answer = fn_ollama_generate(str_prompt)
+            str_answer += ("\n\n[router] escalation wanted "
+                           f"({str_reason}) but no planner is configured; "
+                           "reflex-only answer.")
+            str_tier, str_reason = "reflex", f"planner_unavailable:{str_reason}"
         else:
             str_prompt = (f"Context:\n{str_context}\n\n" if str_context else "") + \
                 str_query
@@ -295,9 +307,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/route":
             self._send(404, {"str_error": "unknown path"})
             return
+        if CFG["str_auth_token"] and \
+                self.headers.get("X-HC-Token", "") != CFG["str_auth_token"]:
+            self._send(401, {"str_error": "missing or bad X-HC-Token"})
+            return
+        int_len = int(self.headers.get("Content-Length", 0) or 0)
+        if int_len > CFG["int_max_body"]:
+            self._send(413, {"str_error": f"body exceeds {CFG['int_max_body']} bytes"})
+            return
         try:
-            obj_req = json.loads(
-                self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            obj_req = json.loads(self.rfile.read(int_len))
             obj_res = fn_route(
                 obj_req["str_query"],
                 obj_req.get("str_context", ""),

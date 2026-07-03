@@ -21,6 +21,11 @@ observe/plan mode first and presents the diff. Execution is a second, separate s
 Cloud-planner output that will be *acted on* (scripts, config, infra changes) passes
 through the auditor tier — a separate context that checks the output against this
 document and the task's stated scope. Chat/analysis output is exempt.
+*Known residual risk:* content under review can attempt prompt injection
+against the auditor. hca fences reviewed content as untrusted data and treats
+embedded verdicts/instructions as grounds for FAIL, but a sufficiently
+instruction-following model can still be steered. For high-consequence
+actions, add a human read of the plan; dual-audit is backlogged.
 
 ## G5 — No secrets in the substrate
 No credentials, tokens, or keys in the repo, captures, or prompts. Secrets live in

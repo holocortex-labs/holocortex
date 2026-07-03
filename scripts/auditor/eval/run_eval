@@ -44,7 +44,8 @@ def fn_run_model(str_model: str, lst_cases: list, str_guardrails: str) -> dict:
         str_prompt = hca.STR_PROMPT_TEMPLATE.format(
             str_guardrails=str_guardrails,
             str_scope=obj_case["str_scope"],
-            str_output=obj_case["str_output"])
+            str_output=obj_case["str_output"],
+            str_boundary="evalboundary")  # fixed boundary: eval runs are not adversarial
         t0 = time.monotonic()
         try:
             str_verdict, _ = hca.fn_parse_verdict(hca.fn_ollama(str_prompt, obj_cfg))

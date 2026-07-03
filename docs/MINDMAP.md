@@ -13,7 +13,7 @@ mindmap
       Render layer — deferred, backlog
     Model tiers
       Reflex — local, free
-        phi3 / qwen via ollama
+        gemma4 via ollama
         the GPU host, fallback the always-on host CPU
         triage, summaries, capture drafts
       Planner — cloud, budgeted

@@ -35,10 +35,12 @@ class TestFileEnv(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".config", "holocortex"))
             with open(os.path.join(d, ".config", "holocortex", "env"), "w") as f:
-                f.write('# comment\n\nHCR_PORT="9999"\nBAD LINE\nHCR_X=\'y\'\n')
+                f.write('# comment\n\nHCR_PORT="9999"\nBAD LINE\nHCR_X=\'y\'\n'
+                        'HCR_Y=val   # trailing comment\n')
             with mock.patch.dict(hca.os.environ, {"HOME": d}):
                 dict_env = hca.fn_load_file_env()
-        self.assertEqual(dict_env, {"HCR_PORT": "9999", "HCR_X": "y"})
+        self.assertEqual(dict_env, {"HCR_PORT": "9999", "HCR_X": "y",
+                                    "HCR_Y": "val"})
 
 
 class TestVerdictParse(unittest.TestCase):
@@ -77,6 +79,38 @@ class TestCaptureAppend(unittest.TestCase):
             self.assertIn("**Verdict:** FAIL — G5 key present", str_body)
         finally:
             os.unlink(file_cap)
+
+
+class TestHardening(unittest.TestCase):
+    def _main(self, str_response, dict_envset=None, str_output_text="do the thing"):
+        with tempfile.TemporaryDirectory() as d:
+            file_out = os.path.join(d, "plan.md")
+            open(file_out, "w").write(str_output_text)
+            file_gr = os.path.join(d, "GUARDRAILS.md")
+            open(file_gr, "w").write("G1..G8")
+            lst_argv = ["hca", "--scope", "s", "--output-file", file_out,
+                        "--guardrails", file_gr]
+            self.dict_prompt = {}
+            def fake(str_prompt, obj_cfg):
+                self.dict_prompt["str_prompt"] = str_prompt
+                return str_response
+            with mock.patch.dict(hca.os.environ, dict_envset or {}), \
+                 mock.patch.object(hca, "fn_ollama", side_effect=fake), \
+                 mock.patch.object(hca.sys, "argv", lst_argv):
+                return hca.main()
+
+    def test_data_fencing_present(self):
+        self.assertEqual(self._main("VERDICT: PASS"), 0)
+        str_p = self.dict_prompt["str_prompt"]
+        self.assertIn("<<DATA-", str_p)
+        self.assertIn("UNTRUSTED", str_p)
+
+    def test_oversize_input_fails_closed_without_model_call(self):
+        int_rc = self._main("VERDICT: PASS",
+                            dict_envset={"HCA_MAX_AUDIT_CHARS": "200"},
+                            str_output_text="x" * 500)
+        self.assertEqual(int_rc, 1)                 # FAIL, not error
+        self.assertEqual(self.dict_prompt, {})      # model never consulted
 
 
 class TestMainFlow(unittest.TestCase):

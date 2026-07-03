@@ -12,12 +12,14 @@ set -euo pipefail
 # PARSED, never sourced — config must not be able to execute code, and values
 # with spaces must not need shell quoting.
 file_site_cfg="${HOME}/.config/holocortex/env"
-str_file_url=""
-if [[ -f "${file_site_cfg}" ]]; then
-    str_file_url="$(grep -E '^HCR_ROUTER_URL=' "${file_site_cfg}" | tail -1 \
-        | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//")"
-fi
-str_router_url="${HCR_ROUTER_URL:-${str_file_url:-http://127.0.0.1:8377}}"
+fn_cfg_key() {  # fn_cfg_key KEY -> value from site config (parsed, never sourced)
+    [[ -f "${file_site_cfg}" ]] || return 0
+    grep -E "^$1=" "${file_site_cfg}" | tail -1 | cut -d= -f2- \
+        | sed "s/ #.*//; s/^['\"]//; s/['\"]\$//; s/[[:space:]]*\$//"
+}
+str_router_url="${HCR_ROUTER_URL:-$(fn_cfg_key HCR_ROUTER_URL)}"
+str_router_url="${str_router_url:-http://127.0.0.1:8377}"
+str_auth_token="${HCR_AUTH_TOKEN:-$(fn_cfg_key HCR_AUTH_TOKEN)}"
 b_force_planner="false"
 file_context=""
 str_query=""
@@ -25,16 +27,19 @@ str_query=""
 fn_usage() { grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 
 fn_get() {
-    curl -sf "${str_router_url}$1" | python3 -m json.tool || {
+    local str_body
+    str_body="$(curl -sf --max-time 10 ${str_auth_token:+-H "X-HC-Token: ${str_auth_token}"} "${str_router_url}$1")" || {
         echo "hcr: router unreachable at ${str_router_url} — is the daemon up?" >&2
         echo "hcr: try: docker ps --filter name=holocortex-router" >&2
         exit 2
     }
+    printf '%s' "${str_body}" | python3 -m json.tool
 }
 
 fn_route() {
     HCR_URL="${str_router_url}" HCR_Q="${str_query}" \
     HCR_CTX_FILE="${file_context}" HCR_FORCE="${b_force_planner}" \
+    HCR_TOKEN="${str_auth_token}" \
     python3 - <<'PY'
 import json, os, sys, urllib.error, urllib.request
 
@@ -52,7 +57,9 @@ req = urllib.request.Request(
         "str_context": str_ctx,
         "b_force_planner": os.environ["HCR_FORCE"] == "true",
     }).encode(),
-    headers={"Content-Type": "application/json"}, method="POST")
+    headers={"Content-Type": "application/json",
+             **({"X-HC-Token": os.environ["HCR_TOKEN"]}
+                if os.environ.get("HCR_TOKEN") else {})}, method="POST")
 
 try:
     with urllib.request.urlopen(req, timeout=180) as resp:

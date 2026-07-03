@@ -135,6 +135,8 @@ def main() -> int:
         if not str_material.strip():
             raise RuntimeError("empty session material")
 
+        if not fn_slug(args.topic):
+            raise RuntimeError("topic produces an empty slug")
         str_root = fn_repo_root()
         str_template = open(os.path.join(str_root, "templates", "capture.md"),
                             encoding="utf-8").read()

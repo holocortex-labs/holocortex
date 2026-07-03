@@ -2,7 +2,7 @@
 
 ```bash
 cd holocortex/scripts/router
-cp ../../holocortex.env.example router.env && vi router.env   # set key + real hostnames
+cp ../../holocortex.env.example router.env && vi router.env && chmod 600 router.env   # key + hostnames; 600 per G5
 docker compose up -d --build
 curl -s http://127.0.0.1:8377/health
 ```
