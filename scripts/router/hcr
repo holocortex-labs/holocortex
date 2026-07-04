@@ -94,6 +94,7 @@ while [[ $# -gt 0 ]]; do
         --stats)         fn_get /stats; exit 0 ;;
         --health)        fn_get /health; exit 0 ;;
         -h|--help)       fn_usage ;;
+        --*)             echo "hcr: unknown option: $1" >&2; fn_usage ;;
         *)               str_query="$1"; shift ;;
     esac
 done
