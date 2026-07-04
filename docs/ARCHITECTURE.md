@@ -28,7 +28,7 @@ C4Container
         ContainerDb(substrate, "Substrate", "git + markdown", "Captures, ADRs, guard rails, specs, routing log")
     }
 
-    Container_Ext(reflex, "Reflex model", "ollama", "Local, free — primary GPU + CPU fallback")
+    Container_Ext(reflex, "Reflex model", "ollama", "Local, free — primary GPU, optional CPU fallback")
     System_Ext(cloud, "Cloud planner", "Claude / GPT API", "Budgeted; escalation only")
 
     Rel(operator, hcr, "asks", "CLI")
@@ -52,6 +52,10 @@ deployment view below.
 
 ## Deployment diagram — physical view
 
+The CPU fallback is drawn dashed because it is **optional**. It is a valid
+resilience choice, but a deployment may reasonably run without it (see Notes).
+When present, it belongs on a host isolated from critical always-on services.
+
 ```mermaid
 flowchart TB
     operator([Operator])
@@ -65,13 +69,11 @@ flowchart TB
         clients["hcr / hca / hcd / hcr-report"]
         rtr["holocortex-router :8377<br/>auth token"]
         web["mkdocs site :8378"]
-        ollamaF["ollama — CPU fallback :11434<br/>STOPPED: thermal"]
         repo[("git substrate<br/>+ routing.jsonl")]
     end
 
-    subgraph hyper["Proxmox hypervisor"]
-        sdns["secondary DNS"]
-        cand["candidate host for<br/>relocated fallback"]
+    subgraph iso["Isolated host — optional"]
+        ollamaF["ollama — optional CPU fallback :11434<br/>away from critical services"]
     end
 
     subgraph nas["NAS"]
@@ -81,28 +83,34 @@ flowchart TB
     operator --> clients
     clients -->|"HTTP :8377 + token"| rtr
     rtr -->|"mesh"| ollamaP
-    rtr -.->|"fallback, mesh"| ollamaF
+    rtr -.->|"optional fallback, mesh"| ollamaF
     rtr -->|"escalate"| cloud
     rtr --> repo
     web -. "read-only" .- repo
     clients -. "audit/draft, mesh" .-> ollamaP
     repo -.->|"backup"| bak
     always <-. "private mesh VPN" .-> gpu
-    always <-. "mesh" .-> hyper
+    always <-. "mesh" .-> iso
 
-    classDef stopped stroke-dasharray:4,opacity:0.6
-    class ollamaF,cand stopped
+    classDef optional stroke-dasharray:4,opacity:0.55
+    class iso,ollamaF optional
 ```
 
 ## Notes
 
 - **Trust boundary** is the private mesh: the router port is reachable across
   it, optionally gated by an auth token. Nodes reach inference by mesh name,
-  so the GPU host sleeping degrades to the fallback rather than failing.
-- **The CPU fallback is drawn dashed** because it is currently stopped after a
-  thermal event on the always-on host; relocating it to the hypervisor (which
-  has better cooling and isolates the risk from primary DNS) is an open
-  decision. See BACKLOG and the relevant ADR.
+  so the primary GPU host sleeping degrades to the optional fallback (if
+  deployed) rather than failing outright.
+- **The CPU fallback is optional, and where it runs matters.** It keeps the
+  reflex tier alive when the primary GPU host is unavailable — but sustained
+  CPU inference is thermally heavy, so it must **not** be co-located with a
+  critical always-on service (for example DNS): a redundancy mechanism should
+  never be able to take down something more important than what it protects.
+  Put it on an isolated or better-cooled host, or omit it entirely. Running
+  without a fallback is a legitimate choice when the routing log shows the
+  primary's downtime isn't actually costing you — reflex simply returns an
+  honest "unavailable" and the cloud planner still works.
 - **The substrate is the hub of the logical view for a reason:** every tool
   reads from or writes to git + markdown. That is the design — the repo is the
   system, and services are replaceable views and actors over it.
