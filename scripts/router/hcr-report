@@ -17,6 +17,14 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 
 
+def fn_default_log() -> str:
+    """Default log path: env, else data/ beside this script.
+    realpath: resolve the ~/.local/bin symlink back into the repo
+    (the v0.6 symlink<->auto-locate seam; hca/hcd were fixed, this wasn't)."""
+    return os.environ.get("HCR_LOG_FILE", os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "data", "routing.jsonl"))
+
+
 def fn_load(file_log: str, int_days: int) -> list:
     dt_cutoff = datetime.now(timezone.utc) - timedelta(days=int_days)
     lst_entries = []
@@ -57,9 +65,7 @@ def fn_summarise(lst_entries: list, int_days: int) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Routing-log analysis (P5)")
-    p.add_argument("--log", default=os.environ.get(
-        "HCR_LOG_FILE", os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "data", "routing.jsonl")))
+    p.add_argument("--log", default=fn_default_log())
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--json", action="store_true")
     args = p.parse_args()

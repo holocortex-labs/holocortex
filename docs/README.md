@@ -83,14 +83,18 @@ slow answer than no answer.
 
 **What Holocortex does.** `hcr --health` reports each tier independently —
 primary reflex, fallback reflex, planner. When the primary GPU backend is
-unreachable, a CPU fallback carries reflex traffic (slower, but alive) and
-the health check tells you you're on it. Errors name the specific backend
-and its specific failure rather than a generic "something's down."
+unreachable, an optional CPU fallback — if you choose to deploy one — carries
+reflex traffic (slower, but alive), and the health check tells you you're on
+it. With no fallback configured, the same health view names the missing tier
+instead of leaving you guessing. Errors name the specific backend and its
+specific failure rather than a generic "something's down."
 
 **The payoff.** Diagnosis is one command, and failures are graceful. In
 practice this surfaced a real hardware finding — a fallback host running hot
-under sustained inference — precisely because the health view made the
-degraded state visible instead of silent.
+under sustained inference, since retired from inference duty — precisely
+because the health view made the degraded state visible instead of silent.
+Deciding *against* redundancy is a valid outcome too, when the routing log
+shows the failure mode isn't costing you anything.
 
 ---
 

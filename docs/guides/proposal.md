@@ -74,24 +74,31 @@ terms it does four things:
 These are not hypothetical. During its own development the framework
 demonstrated each benefit in practice:
 
-- **Spend visibility:** reporting consistently showed the low-cost tools
-  handling the large majority of work, with premium AI reserved for the genuine
-  exceptions — each with a logged reason.
+- **Spend visibility:** in the framework's own development use, the low-cost
+  tools handled 86% of all queries; the handful that escalated to premium AI
+  each carried a logged reason, and the report shows every one.
 - **Governance in action:** the independent check reliably caught unsafe or
   out-of-scope AI proposals before they were acted on, with a documented trail.
-- **Safeguards that fired:** automatic controls caught a confidential internal
-  document heading toward public release — and caught it again when the same
-  mistake was made by hand. Either instance, unprevented, would have cost more
-  than the framework did to build.
+- **Safeguards that fired — and one that was learned:** pre-publication checks
+  caught three inadvertent disclosures of internal names before anything left
+  the building. One confidential document did slip through a gap in those
+  checks; routine post-publication verification found it, it was withdrawn the
+  same day, and the gap was closed mechanically so the same mistake is now
+  blocked outright. Both halves are the point: prevention where possible, fast
+  detection and honest correction where not.
 - **Vendor independence, proven:** the underlying AI model was replaced partway
   through the work, and the work continued without a gap.
 
 ## Investment and effort
 
-Direct cost is low. Holocortex is built on tools the organisation is likely to
-have already, and it reduces premium-AI spend rather than adding to it. The
-main investment is a modest amount of discipline — following a light,
-repeatable way of working — and its value compounds the more it is used. It is
+Direct cost is low but not zero. Holocortex is built on tools the organisation
+is likely to have already, and it reduces premium-AI spend rather than adding
+to it. The one hardware requirement is a machine capable of running the local
+models — typically an existing GPU-equipped workstation or one modest dedicated
+server; under-powered hardware is a false economy (development testing retired
+one such host). Beyond that, the main investment is a modest amount of
+discipline — following a light, repeatable way of working — and its value
+compounds the more it is used. It is
 infrastructure, not a one-off purchase: the return grows over time as the
 record of decisions deepens and the cost controls take hold.
 
