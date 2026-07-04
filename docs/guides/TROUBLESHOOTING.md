@@ -13,7 +13,8 @@ Paths and hosts use environment variables and placeholders (`<gpu-host>`,
 
 **`hcr --health`**
 Reports each tier independently. `b_reflex_primary` is your GPU backend,
-`b_reflex_fallback` the CPU liferaft, `b_planner_configured` the cloud key.
+`b_reflex_fallback` the optional CPU liferaft (false simply means you have
+not deployed one), `b_planner_configured` the cloud key.
 *Why:* the single most useful check. It distinguishes "primary down, running
 slow on fallback" from "everything's fine" from "reflex tier entirely dead."
 If primary is false but fallback true, `hcr` still works — just slowly.
@@ -69,12 +70,35 @@ the model, which looks like a status readout but is pure improvisation and can
 even cost tokens if it escalates.)
 *Healthy:* `hcr: unknown option: --status` and usage.
 
-**Fallback failover (before you need it):**
+**Fallback failover (only if you deploy a fallback):**
 `HCR_OLLAMA_PRIMARY=http://127.0.0.1:9 HCR_OLLAMA_FALLBACK=${real_fallback} hca --scope "edit BACKLOG.md only" --output-file /tmp/plan.md`
 Points the primary at a dead port so the fallback must carry the request.
 *Why:* proves the liferaft works while you're calm, not during an outage. On
-CPU it will be slow.
+CPU it will be slow. A fallback is optional — running without one is a valid
+configuration, and one caution from real use: sustained CPU inference is a
+poor fit for small passively-cooled hosts, especially ones carrying other
+duties (a fanless box running your DNS should not also run your models).
 *Healthy:* a verdict returns (exit 0/1), sourced from the fallback.
+
+**Shell expansion in queries:** `hcr 'what does `ls -l /dev/null` do?'`
+Note the SINGLE quotes.
+*Why:* inside double quotes your shell executes `` `...` `` and `$(...)`
+*before* hcr sees the string — with your privileges, and the expanded output
+rides the query (and could reach the cloud planner on escalation). The
+symptom: the answer describes your actual files or command output instead of
+the command itself. Deliberate substitution is a feature
+(`hcr "explain: $(tail -5 err.log)"`); for pasted or untrusted text use
+single quotes, or feed stdin — `some-command | hcr -` or a quoted heredoc
+(`hcr - <<'EOF'`) — which is never shell-parsed.
+*Healthy:* the model discusses the literal command text, not its output.
+
+**hcr-report finds no log:** `hcr-report` says `no log at .../.local/bin/data/routing.jsonl`
+*Why:* versions before v1.2.4 resolved the default log path beside the
+`~/.local/bin` symlink instead of the real script (fixed with `realpath`).
+If you see a `.local/bin` path in the error, update; or point it explicitly
+with `--log` or `HCR_LOG_FILE`.
+*Healthy:* bare `hcr-report` finds the routing log beside the daemon's data
+directory.
 
 ## Auditor quality
 
@@ -122,14 +146,19 @@ no internal review or private ADR files.
 remote as backup, this should be empty.
 *Healthy:* empty (fully pushed).
 
-**Verifying a purge (if you ever remove something from public history):**
-`git ls-remote --tags origin <tag>` and `git cat-file -e <tag>:<path>`
-*Why:* the raw CDN caches a branch tip for minutes and cannot be trusted to
-confirm a deletion. `ls-remote` reads the remote ref directly; `cat-file -e`
-confirms a path is absent from a commit's tree. Note that
+**Verifying public-repo state (purges, leaks, or just "what does it serve?"):**
+fresh `git clone`, then `git ls-remote`, `git rev-parse`, `git cat-file -e <ref>:<path>`
+*Why:* HTTP surfaces — the hosting API *and* the raw CDN — have served state
+more than a day stale, in both directions: showing a purged file as still
+present, and equally capable of hiding a present one. They are hints, never
+evidence. Only git-native commands against a real clone answer what the
+remote actually serves. Check `rev-parse` output matches `ls-remote` before
+trusting a `cat-file` verdict — `cat-file -e` also "fails" when the object
+simply isn't fetched, which reads as a false "clean". Note that
 `git push --force --tags` does *not* reliably move an existing remote tag —
 push the tag ref explicitly (`git push origin <tag> --force`).
-*Healthy:* `cat-file -e` reports the path does not exist.
+*Healthy:* refs match the remote's advertisement and `cat-file -e` agrees
+with expectation on every advertised ref.
 
 ## Services
 

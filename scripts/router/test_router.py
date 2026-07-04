@@ -8,6 +8,14 @@ from unittest import mock
 
 import holocortex_router as hr
 
+# Hermetic baseline: CFG is loaded at import from process env AND
+# ~/.config/holocortex/env, so on a deployed host the suite inherits site
+# config. That made test_body_cap_413 fail with 401 on any box with
+# HCR_AUTH_TOKEN set (auth is checked before the body cap) while passing
+# everywhere clean — a failure that scrolled past unseen for a day
+# (capture 2026-07-04). Tests that WANT auth set it explicitly.
+hr.CFG["str_auth_token"] = ""
+
 
 class FakePlanner(hr.PlannerBackend):
     def __init__(self, str_answer="planner-answer", int_tokens=500):

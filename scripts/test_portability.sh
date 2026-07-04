@@ -9,8 +9,12 @@ int_hits=0
 while IFS= read -r str_hit; do
     echo "PORTABILITY VIOLATION: ${str_hit}"
     int_hits=$((int_hits + 1))
+# --exclude-dir=export: scripts/export/ is private-side tooling that MUST
+# name the private terms (scrub rules, forbidden lists, verify gates) and
+# is itself excluded from the public export — it never ships. Scanning it
+# kept this gate red from v1.2.1 to v1.2.4 without anyone noticing.
 done < <(grep -rniE "${lst_forbidden}" "${str_repo}/scripts" "${str_repo}/holocortex.env.example" \
-         --exclude-dir=__pycache__ --exclude-dir=data --exclude-dir=models --exclude=test_portability.sh --exclude='*.env' 2>/dev/null || true)
+         --exclude-dir=__pycache__ --exclude-dir=data --exclude-dir=models --exclude-dir=export --exclude=test_portability.sh --exclude='*.env' 2>/dev/null || true)
 if (( int_hits > 0 )); then
     echo "${int_hits} site-specific reference(s) in scripts/ or example config"
     exit 1

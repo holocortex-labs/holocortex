@@ -2,10 +2,17 @@
 # hcr — Holocortex router CLI client.
 # Usage:
 #   hcr "query"                    route a query (reflex-first)
+#   hcr -                          read the query from stdin
 #   hcr --force-planner "query"    explicit cloud override (logged)
 #   hcr --context file.md "query"  attach file contents as context
 #   hcr --stats | --health         daemon introspection
 # Env: HCR_ROUTER_URL via ~/.config/holocortex/env or process env (default localhost:8377)
+#
+# SECURITY — shell expansion: inside double quotes YOUR SHELL runs `...` and
+# $(...) before hcr sees the string (with your privileges, and the output may
+# escalate to the cloud planner). Deliberate use is fine; for pasted or
+# untrusted text use single quotes, or `hcr -` with a pipe/quoted heredoc —
+# stdin is never shell-parsed:   hcr - <<'EOF' ... EOF
 set -euo pipefail
 
 # per-host site config; process env wins over file (deterministic precedence).
@@ -13,9 +20,12 @@ set -euo pipefail
 # with spaces must not need shell quoting.
 file_site_cfg="${HOME}/.config/holocortex/env"
 fn_cfg_key() {  # fn_cfg_key KEY -> value from site config (parsed, never sourced)
+    # `|| true`: a missing key means grep rc 1 -> pipefail -> the caller's
+    # assignment fails -> set -e kills the client. Absence is a valid
+    # result here (latent until 2026-07-04; ship.sh hit it first).
     [[ -f "${file_site_cfg}" ]] || return 0
     grep -E "^$1=" "${file_site_cfg}" | tail -1 | cut -d= -f2- \
-        | sed "s/ #.*//; s/^['\"]//; s/['\"]\$//; s/[[:space:]]*\$//"
+        | sed "s/ #.*//; s/^['\"]//; s/['\"]\$//; s/[[:space:]]*\$//" || true
 }
 str_router_url="${HCR_ROUTER_URL:-$(fn_cfg_key HCR_ROUTER_URL)}"
 str_router_url="${str_router_url:-http://127.0.0.1:8377}"
@@ -95,6 +105,7 @@ while [[ $# -gt 0 ]]; do
         --health)        fn_get /health; exit 0 ;;
         -h|--help)       fn_usage ;;
         --*)             echo "hcr: unknown option: $1" >&2; fn_usage ;;
+        -)               str_query="$(cat)"; shift ;;
         *)               str_query="$1"; shift ;;
     esac
 done

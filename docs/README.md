@@ -13,7 +13,9 @@ model, but they all hit your paid API because that's what's wired up. You
 have no idea how much of the bill is trivia.
 
 **What Holocortex does.** Every query goes to the local reflex tier first
-(`hcr "..."`). It answers directly and free, or escalates to the cloud
+(`hcr "..."`, or pipe it in with `hcr -` — the stdin path is never
+shell-parsed, so pasted text can't smuggle command substitutions past you).
+It answers directly and free, or escalates to the cloud
 planner *only* with a reason from a closed set (complexity, context size,
 tooling, quality) — and every decision is logged. A daily token budget caps
 cloud spend; at the limit the router degrades to local answers rather than
