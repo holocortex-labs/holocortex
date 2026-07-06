@@ -3,6 +3,7 @@ Three questions for anyone shipping AI right now:
 - Can anyone actually account for the tokens you're spending — by team, by task, by month?
 - When the person who built your best AI workflow leaves, does the reasoning leave with them?
 - And how hard would it be to fire your AI vendor? If the answer is "we can't," that's not a strategy — it's a dependency.
+
 Governance, cost accountability, retained reasoning, an open exit. That's the job Holocortex was built to do.
 
 # Holocortex
