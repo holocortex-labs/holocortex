@@ -52,18 +52,3 @@ The architecture decision record already exists to prevent this. Decision debt i
 name for the liability an org carries when it doesn't keep them — or keeps them for code and
 nowhere else. Naming the liability is what lets leadership *price* it; "write more ADRs" never
 made it onto a board slide, "what is our decision debt?" can.
-
-## How Holocortex services it
-
-Decision debt is the problem statement; Holocortex is how you pay it down at organisational scale.
-The four failure modes Holocortex targets are decision debt made concrete:
-
-1. **Retained reasoning** — the "why" is captured as decisions happen, not reconstructed after the
-   person leaves. (Directly the decision-debt principal.)
-2. **Token accountability** — the spend behind AI-made decisions is attributable, not a black hole.
-3. **Governance keeping pace with adoption** — decisions are made *inside* a governed boundary.
-4. **Vendor independence** — an open exit, so the record isn't hostage to one provider.
-
-Sequencing: **own the concept in public first, name the product second.** The concept is the
-category; the product is the answer to "so how do I pay it down?" — a question people bring to you
-once the term is yours. Public copy below names no product on purpose.
